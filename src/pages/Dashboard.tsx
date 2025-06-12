@@ -1,200 +1,211 @@
 import React, { useState, useEffect } from 'react';
-import { MainButton, useWebApp, useShowPopup } from '@vkruglikov/react-telegram-web-app';
+import { WebAppProvider, useWebApp, useShowPopup } from '@vkruglikov/react-telegram-web-app';
 
-export default function DashboardTest() {
-  const webApp = useWebApp();
-  const showPopup = useShowPopup();
-  const [telegramInfo, setTelegramInfo] = useState({});
-  const [status, setStatus] = useState('checking');
-  const [error, setError] = useState(null);
+// Компонент для глубокой диагностики
+export default function TelegramDebugger() {
+  const [status, setStatus] = useState('initializing');
+  const [webAppState, setWebAppState] = useState(null);
+  const [windowTelegram, setWindowTelegram] = useState(null);
+  const [diagnostics, setDiagnostics] = useState([]);
+  
+  const addDiagnostic = (message) => {
+    setDiagnostics(prev => [
+      ...prev,
+      `[${new Date().toLocaleTimeString()}] ${message}`
+    ]);
+  };
 
-  // Собираем информацию о Telegram WebApp
+  // Шаг 1: Проверка глобального объекта window
   useEffect(() => {
-    const collectTelegramInfo = () => {
+    if (typeof window === 'undefined') {
+      addDiagnostic('⚠️ window object не доступен (возможно, SSR)');
+      setStatus('error');
+      return;
+    }
+    
+    addDiagnostic('✅ window object доступен');
+    setWindowTelegram(window.Telegram);
+    addDiagnostic(`window.Telegram = ${window.Telegram ? 'доступен' : 'недоступен'}`);
+    
+    if (window.Telegram?.WebApp) {
+      addDiagnostic('✅ Telegram.WebApp найден в window');
+    } else {
+      addDiagnostic('⚠️ Telegram.WebApp не найден в window');
+    }
+  }, []);
+
+  // Шаг 2: Проверка провайдера
+  useEffect(() => {
+    if (status === 'initializing') {
       try {
-        if (!window.Telegram || !window.Telegram.WebApp) {
-          throw new Error('Telegram WebApp API не обнаружено');
+        const webAppFromHook = useWebApp();
+        setWebAppState(webAppFromHook);
+        
+        if (webAppFromHook) {
+          addDiagnostic('✅ useWebApp() вернул объект WebApp');
+          setStatus('ready');
+        } else {
+          addDiagnostic('⚠️ useWebApp() вернул null/undefined');
+          setStatus('provider-issue');
         }
-
-        const tg = window.Telegram.WebApp;
-        const info = {
-          version: tg.version,
-          platform: tg.platform,
-          initData: tg.initData || 'N/A',
-          initDataUnsafe: tg.initDataUnsafe || {},
-          themeParams: tg.themeParams,
-          colorScheme: tg.colorScheme,
-          isExpanded: tg.isExpanded,
-          viewportHeight: tg.viewportHeight,
-          viewportStableHeight: tg.viewportStableHeight,
-          headerColor: tg.headerColor,
-          backgroundColor: tg.backgroundColor,
-          isClosingConfirmationEnabled: tg.isClosingConfirmationEnabled,
-          BackButton: tg.BackButton ? 'Доступна' : 'Недоступна',
-          MainButton: tg.MainButton ? 'Доступна' : 'Недоступна',
-          HapticFeedback: tg.HapticFeedback ? 'Доступна' : 'Недоступна',
-        };
-
-        setTelegramInfo(info);
-        setStatus('loaded');
-        
-        console.log('Telegram WebApp Info:', info);
-        console.log('React Hook WebApp:', webApp);
-      } catch (err) {
-        setStatus('error');
-        setError(err.message);
-        console.error('Ошибка получения данных Telegram:', err);
+      } catch (e) {
+        addDiagnostic(`🚨 Ошибка при вызове useWebApp(): ${e.message}`);
+        setStatus('hook-error');
       }
-    };
+    }
+  }, [status]);
 
-    // Даем 1 секунду на инициализацию API
-    const timer = setTimeout(collectTelegramInfo, 1000);
-    return () => clearTimeout(timer);
-  }, [webApp]);
+  // Шаг 3: Попытка ручной инициализации
+  const tryManualInit = () => {
+    addDiagnostic('Попытка ручной инициализации...');
+    
+    if (window.Telegram?.WebApp) {
+      try {
+        window.Telegram.WebApp.ready();
+        addDiagnostic('✅ Вызван Telegram.WebApp.ready()');
+        addDiagnostic(`Платформа: ${window.Telegram.WebApp.platform}`);
+        addDiagnostic(`Версия: ${window.Telegram.WebApp.version}`);
+        addDiagnostic(`InitData: ${window.Telegram.WebApp.initData ? 'есть' : 'нет'}`);
+        setStatus('manual-success');
+      } catch (e) {
+        addDiagnostic(`🚨 Ошибка при ручной инициализации: ${e.message}`);
+        setStatus('manual-error');
+      }
+    } else {
+      addDiagnostic('⚠️ window.Telegram.WebApp недоступен для ручного вызова');
+      setStatus('manual-not-available');
+    }
+  };
 
-  // Тестовый режим для разработки
-  if (!webApp && process.env.NODE_ENV === 'development') {
+  // Рендер по статусам
+  if (status === 'initializing') {
     return (
       <div className="p-4 max-w-2xl mx-auto">
-        <h1 className="text-2xl font-bold text-red-500 mb-4">[DEV MODE] Тест окружения</h1>
-        
-        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
-          <div className="flex">
-            <div className="ml-3">
-              <p className="text-sm text-yellow-700">
-                <strong>Telegram WebApp не обнаружен</strong>. Это нормально в режиме разработки.
-                Запустите приложение внутри Telegram для полной проверки.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <div className="border rounded-lg p-4">
-            <h2 className="font-bold mb-2">Проверка методов</h2>
-            <button 
-              onClick={() => alert('Имитация popup в dev-режиме')}
-              className="w-full bg-blue-500 text-white py-2 rounded mb-2"
-            >
-              Show Popup
-            </button>
-            <button 
-              onClick={() => console.log('Имитация закрытия WebApp')}
-              className="w-full bg-gray-500 text-white py-2 rounded"
-            >
-              Close WebApp
-            </button>
-          </div>
-
-          <div className="border rounded-lg p-4">
-            <h2 className="font-bold mb-2">Статус WebApp</h2>
-            <p className="mb-1"><strong>Статус:</strong> <span className="text-red-500">Не подключен</span></p>
-            <p className="mb-1"><strong>Платформа:</strong> Браузер/Dev</p>
-            <p><strong>Версия API:</strong> Отсутствует</p>
-          </div>
-        </div>
-
-        <div className="bg-gray-100 p-4 rounded-lg">
-          <h2 className="font-bold mb-2">Рекомендации</h2>
-          <ul className="list-disc pl-5 space-y-1">
-            <li>Запустите приложение через Telegram: t.me/your_bot?startapp=test</li>
-            <li>Проверьте наличие скрипта Telegram WebApp в &lt;head&gt;</li>
-            <li>Убедитесь что используете WebAppProvider в корне приложения</li>
-            <li>Для тестирования используйте TMA Launcher: 
-              <pre className="bg-black text-white p-2 mt-2 rounded">npx https://github.com/Telegram-Mini-Apps/tma-launcher</pre>
-            </li>
-          </ul>
+        <h1 className="text-2xl font-bold mb-4">Инициализация...</h1>
+        <p>Проверяем окружение Telegram</p>
+        <div className="mt-4 p-3 bg-gray-100 rounded">
+          {diagnostics.map((msg, i) => (
+            <div key={i} className="text-sm font-mono">{msg}</div>
+          ))}
         </div>
       </div>
     );
   }
 
-  if (!webApp) {
-    return (
-      <div className="p-4 text-center">
-        <h1 className="text-xl font-bold">Инициализация Telegram API...</h1>
-        <p className="mt-2">Пожалуйста, подождите</p>
-      </div>
-    );
-  }
-
-  if (status === 'error') {
+  if (status.startsWith('manual-')) {
     return (
       <div className="p-4 max-w-2xl mx-auto">
-        <h1 className="text-2xl font-bold text-red-500 mb-4">Ошибка инициализации</h1>
-        
-        <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-4">
-          <p className="text-red-700"><strong>Произошла ошибка:</strong> {error}</p>
+        <h1 className="text-2xl font-bold mb-4">Ручная инициализация</h1>
+        <div className="mb-4 p-3 bg-yellow-50 border-l-4 border-yellow-400">
+          <h3 className="font-bold">Результат:</h3>
+          <div className="mt-2 p-2 bg-white rounded">
+            {diagnostics.slice(-3).map((msg, i) => (
+              <div key={i} className="text-sm font-mono">{msg}</div>
+            ))}
+          </div>
         </div>
-
-        <div className="bg-gray-100 p-4 rounded-lg">
-          <h2 className="font-bold mb-2">Возможные решения:</h2>
-          <ul className="list-disc pl-5 space-y-1">
-            <li>Убедитесь что запускаете через Telegram (не через прямой URL в браузере)</li>
-            <li>Проверьте что скрипт Telegram WebApp загружен (должен быть в &lt;head&gt;)</li>
-            <li>Обновите приложение: <code className="bg-gray-200 px-1">window.Telegram.WebApp.expand()</code></li>
-            <li>Попробуйте перезапустить приложение</li>
-          </ul>
-        </div>
+        <button 
+          onClick={() => setStatus('initializing')}
+          className="px-4 py-2 bg-blue-500 text-white rounded"
+        >
+          Повторить проверку
+        </button>
       </div>
     );
   }
 
   return (
     <div className="p-4 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Тест окружения WebApp</h1>
+      <h1 className="text-2xl font-bold mb-4">Диагностика Telegram WebApp</h1>
       
-      <div className="bg-green-50 border-l-4 border-green-500 p-4 mb-6">
-        <p className="text-green-700">
-          <strong>Telegram WebApp успешно подключен!</strong> Ниже вся диагностическая информация
+      <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500">
+        <h2 className="font-bold text-lg mb-2">Обнаружена проблема</h2>
+        <p>
+          Компонент не может получить доступ к Telegram WebApp API через провайдер.
+          Возможные причины:
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div className="border rounded-lg p-4">
-          <h2 className="font-bold mb-2">Основная информация</h2>
-          <p className="mb-1"><strong>Версия API:</strong> {telegramInfo.version}</p>
-          <p className="mb-1"><strong>Платформа:</strong> {telegramInfo.platform}</p>
-          <p className="mb-1"><strong>Цветовая схема:</strong> {telegramInfo.colorScheme}</p>
-          <p className="mb-1"><strong>Статус:</strong> <span className="text-green-500">Активен</span></p>
-          <p><strong>Высота viewport:</strong> {telegramInfo.viewportHeight}px</p>
+          <h3 className="font-bold mb-2">Причина 1: Отсутствует провайдер</h3>
+          <p className="mb-3">
+            Убедитесь, что ваш корневой компонент обёрнут в WebAppProvider:
+          </p>
+          <pre className="bg-gray-800 text-white p-3 rounded text-sm">
+{`import { WebAppProvider } from '@vkruglikov/react-telegram-web-app';
+
+function App() {
+  return (
+    <WebAppProvider>
+      <YourComponent />
+    </WebAppProvider>
+  );
+}`}
+          </pre>
         </div>
 
         <div className="border rounded-lg p-4">
-          <h2 className="font-bold mb-2">Проверка методов</h2>
-          <MainButton
-            text="SHOW POPUP"
-            onClick={() => showPopup({ message: 'Тест popup из WebApp' })}
-          />
-          <button 
-            onClick={() => webApp.close()}
-            className="w-full bg-gray-500 text-white py-2 rounded mt-2"
-          >
-            Close WebApp
-          </button>
+          <h3 className="font-bold mb-2">Причина 2: Скрипт не загружен</h3>
+          <p className="mb-3">
+            Добавьте скрипт Telegram WebApp в index.html:
+          </p>
+          <pre className="bg-gray-800 text-white p-3 rounded text-sm">
+{`<head>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>`}
+          </pre>
         </div>
       </div>
 
       <div className="border rounded-lg p-4 mb-6">
-        <h2 className="font-bold mb-2">Данные пользователя</h2>
-        <pre className="bg-gray-100 p-2 overflow-x-auto text-sm">
-          {JSON.stringify(telegramInfo.initDataUnsafe?.user || 'Данные пользователя недоступны', null, 2)}
-        </pre>
+        <h3 className="font-bold mb-2">Текущий статус</h3>
+        <div className="mb-3 p-3 bg-gray-100 rounded">
+          {diagnostics.map((msg, i) => (
+            <div key={i} className="text-sm font-mono">{msg}</div>
+          ))}
+        </div>
+        
+        <button 
+          onClick={tryManualInit}
+          className="px-4 py-2 bg-green-600 text-white rounded mr-3"
+        >
+          Попробовать ручную инициализацию
+        </button>
+        
+        <button 
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 bg-blue-500 text-white rounded"
+        >
+          Перезагрузить страницу
+        </button>
       </div>
 
-      <div className="border rounded-lg p-4 mb-6">
-        <h2 className="font-bold mb-2">Параметры темы</h2>
-        <pre className="bg-gray-100 p-2 overflow-x-auto text-sm">
-          {JSON.stringify(telegramInfo.themeParams || 'Параметры темы недоступны', null, 2)}
-        </pre>
-      </div>
-
-      <div className="border rounded-lg p-4">
-        <h2 className="font-bold mb-2">Полные initDataUnsafe</h2>
-        <pre className="bg-gray-100 p-2 overflow-x-auto text-xs max-h-40">
-          {JSON.stringify(telegramInfo.initDataUnsafe || {}, null, 2)}
-        </pre>
+      <div className="bg-gray-100 p-4 rounded-lg">
+        <h3 className="font-bold mb-2">Дополнительные шаги для диагностики:</h3>
+        <ol className="list-decimal pl-5 space-y-2">
+          <li>Откройте консоль разработчика (F12) и проверьте наличие ошибок</li>
+          <li>Проверьте наличие тега script с Telegram WebApp в вкладке Elements</li>
+          <li>В консоли введите <code>window.Telegram</code> и проверьте результат</li>
+          <li>
+            Для тестирования используйте TMA Launcher:
+            <pre className="bg-black text-white p-2 mt-2 rounded">npx https://github.com/Telegram-Mini-Apps/tma-launcher</pre>
+          </li>
+          <li>
+            Проверьте запуск в Telegram:
+            <pre className="bg-black text-white p-2 mt-2 rounded">t.me/your_bot?startapp=test</pre>
+          </li>
+        </ol>
       </div>
     </div>
+  );
+}
+
+// Обертка для провайдера в тестовом режиме
+export function DebugWrapper() {
+  return (
+    <WebAppProvider>
+      <TelegramDebugger />
+    </WebAppProvider>
   );
 }
