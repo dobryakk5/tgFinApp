@@ -7,7 +7,12 @@
     <title>Telegram Mini App Boilerplate - React + Vite</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
-     window.Telegram?.WebApp.ready();
+      if (window.Telegram?.WebApp) {
+        window.Telegram.WebApp.ready();
+        console.log('📲 ready() вызван');
+      } else {
+        console.warn('⚠️ WebApp отсутствует в HTML');
+      }
     </script>
   </head>
   <body>
